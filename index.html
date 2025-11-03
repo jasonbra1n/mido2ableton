@@ -1,52 +1,75 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Python-to-MIDI → Ableton</title>
-  <script src="https://cdn.jsdelivr.net/npm/pyodide@0.26.2/pyodide.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/midi-writer-js@2/build/MIDIWriterJS.min.js"></script>
-  <style>
-    body {font-family:system-ui;background:#111;color:#0f0;padding:2rem;}
-    textarea {width:100%;height:300px;background:#222;color:#0f0;border:1px solid #0f0;font-family:monospace;}
-    button {padding:1rem 2rem;margin:1rem;font-size:1.2rem;background:#0f0;color:#000;border:none;cursor:pointer;}
-    #output {margin-top:1rem;padding:1rem;background:#000;border:1px solid #0f0;white-space:pre-wrap;}
-    .file {color:#0c0;margin:0.5rem 0;}
-  </style>
+<meta charset="UTF-8">
+<title>Python Mido → Ableton (FIXED)</title>
+<script src="https://cdn.jsdelivr.net/npm/pyodide@0.26.2/pyodide.js"></script>
+<style>
+  body{font-family:system-ui;background:#111;color:#0f0;padding:2rem;}
+  textarea{width:100%;height:320px;background:#222;color:#0f0;border:1px solid #0f0;font-family:monospace;font-size:1rem;}
+  button{padding:1rem 2rem;margin:1rem;font-size:1.2rem;background:#0f0;color:#000;border:none;cursor:pointer;}
+  #output{margin-top:1rem;padding:1rem;background:#000;border:1px solid #0f0;white-space:pre-wrap;}
+  .file{color:#0c0;margin:0.5rem 0;font-weight:bold;}
+</style>
 </head>
 <body>
-  <h1>Upload Your Python Mido Script → Instant Ableton MIDIs</h1>
-  <p>1. Paste your script below (or drag a .py file)<br>
-     2. Click RUN → every <code>create_midi(...)</code> becomes a downloadable .mid</p>
+<h1>Drag .py or Paste → 3 clicks → Ableton MIDIs</h1>
 
-  <textarea id="code" placeholder="Paste your mido script here…">
+<textarea id="code" placeholder="Paste your mido script here…">
+# PASTE YOUR ORIGINAL SCRIPT BELOW (no changes needed)
 from mido import MidiFile, MidiTrack, Message, MetaMessage
+import os
 def create_midi(filename, tracks_data, ticks_per_beat=480, tempo=857143):
     mid = MidiFile(ticks_per_beat=ticks_per_beat)
-    # ... your script here
-  </textarea>
+    mid.tempo = tempo
+    for track_name, notes in tracks_data.items():
+        track = MidiTrack()
+        mid.tracks.append(track)
+        track.name = track_name.encode('ascii', 'ignore')
+        track.append(MetaMessage('time_signature', numerator=4, denominator=4, time=0))
+        track.append(MetaMessage('key_signature', key='Cm'))
+        time = 0
+        for note, duration, velocity in notes:
+            track.append(Message('note_on', note=note, velocity=velocity, time=time, channel=0))
+            time = duration
+            track.append(Message('note_off', note=note, velocity=0, time=duration, channel=0))
+    mid.save(filename)
+    print(f"Saved {filename}")
 
-  <button id="run">RUN → Generate MIDIs</button>
-  <button id="clear">Clear</button>
-  <div id="output">Ready.</div>
-  <div id="downloads"></div>
+bass_notes = [(40,120,100),(43,120,110),(45,240,100),(40,120,100),(45,120,110),(43,240,100)]*2
+create_midi('prog_psy_bass.mid', {'Bass': bass_notes})
 
-  <script>
-    let pyodide;
-    async function init() {
-      document.getElementById('run').textContent = 'Loading Python…';
-      pyodide = await loadPyodide();
-      await pyodide.loadPackage('mido');
-      await pyodide.runPython(`import js`);
-      document.getElementById('run').textContent = 'RUN → Generate MIDIs';
-      document.getElementById('output').textContent = 'Python ready. Paste script & click RUN.';
-    }
-    init();
+lead_notes = [(64,120,90),(67,120,95),(69,120,100),(70,120,95),(72,120,100),(74,120,95),(70,120,100),(69,120,95),(67,120,90),(65,120,95),(64,240,80)]*4
+create_midi('prog_psy_lead_arp.mid', {'Lead Arp': lead_notes})
 
-    // Intercept mid.save() and turn it into a browser download
-    const pythonWrapper = `
+pad_notes = [(64,1920,70),(67,1920,70),(71,1920,70),(60,1920,70),(64,1920,70),(67,1920,70),(67,1920,70),(71,1920,70),(74,1920,70),(62,1920,70),(66,1920,70),(69,1920,70)]
+create_midi('prog_psy_pads.mid', {'Pads': pad_notes})
+print("All MIDI files generated!")
+</textarea>
+
+<button id="run">RUN → Generate MIDIs</button>
+<button id="clear">Clear</button>
+<div id="output">Ready.</div>
+<div id="downloads"></div>
+
+<script>
+let pyodide;
+async function init(){
+  document.getElementById('run').textContent='Loading Python…';
+  pyodide = await loadPyodide();
+  await pyodide.loadPackage('mido');
+  document.getElementById('run').textContent='RUN → Generate MIDIs';
+  document.getElementById('output').textContent='Python ready!';
+}
+init();
+
+// AUTO-FIX: always import mido + patch save()
+const autoFix = `
+import mido
+from mido import MidiFile, MidiTrack, Message, MetaMessage
+from io import BytesIO
 import js
-from pyodide.ffi import to_js
-from js import document, Blob, URL, File
+from js import document, Blob, URL
 
 original_save = MidiFile.save
 def browser_save(self, filename):
@@ -63,41 +86,36 @@ def browser_save(self, filename):
     a.click()
     URL.revokeObjectURL(url)
     print("Saved " + filename)
-
 MidiFile.save = browser_save
 `;
 
-    document.getElementById('run').onclick = async () => {
-      const code = document.getElementById('code').value;
-      if (!code.trim()) return alert('Paste a script first');
-      
-      document.getElementById('downloads').innerHTML = '';
-      document.getElementById('output').textContent = 'Running…';
+document.getElementById('run').onclick = async () => {
+  const code = document.getElementById('code').value;
+  if(!code.trim()) return alert('Paste script first');
+  document.getElementById('downloads').innerHTML='';
+  document.getElementById('output').textContent='Running…';
+  try{
+    await pyodide.runPython(autoFix);   // ← THIS LINE FIXES EVERYTHING
+    await pyodide.runPython(code);
+    document.getElementById('output').textContent='DONE! Click green links ↓';
+  }catch(e){
+    document.getElementById('output').textContent='ERROR:\n'+e.message;
+  }
+};
 
-      try {
-        await pyodide.runPython(pythonWrapper);
-        await pyodide.runPython(code);
-        document.getElementById('output').textContent = 'Done! ↓ Click the green links to download.';
-      } catch (e) {
-        document.getElementById('output').textContent = 'Error:\n' + e.message;
-      }
-    };
+document.getElementById('clear').onclick = () => {
+  document.getElementById('code').value='';
+  document.getElementById('downloads').innerHTML='';
+  document.getElementById('output').textContent='Cleared.';
+};
 
-    document.getElementById('clear').onclick = () => {
-      document.getElementById('code').value = '';
-      document.getElementById('downloads').innerHTML = '';
-      document.getElementById('output').textContent = 'Cleared.';
-    };
-
-    // Drag-and-drop .py file
-    document.body.addEventListener('dragover', e => e.preventDefault());
-    document.body.addEventListener('drop', e => {
-      e.preventDefault();
-      const file = e.dataTransfer.files[0];
-      if (file.name.endsWith('.py')) {
-        file.text().then(txt => document.getElementById('code').value = txt);
-      }
-    });
-  </script>
+// Drag-and-drop .py file
+document.body.addEventListener('dragover', e=>e.preventDefault());
+document.body.addEventListener('drop', e=>{
+  e.preventDefault();
+  const file=e.dataTransfer.files[0];
+  if(file.name.endsWith('.py')) file.text().then(t=>document.getElementById('code').value=t);
+});
+</script>
 </body>
 </html>
